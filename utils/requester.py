@@ -6,7 +6,7 @@ class Requester:
     def __init__(self):
         self.ua = UserAgent(platforms="desktop")
 
-    def get(self, url: str, timeout: int = 10) -> requests.Response:
+    def get(self, url: str, timeout: int = 60) -> requests.Response:
         headers = {"User-Agent": self.ua.random}
         response = requests.get(url, headers=headers, timeout=timeout)
         response.raise_for_status()
@@ -17,4 +17,4 @@ class Requester:
 
     def get_stream(self, url: str, timeout: int = 10) -> requests.Response:
         headers = {"User-Agent": self.ua.random}
-        return requests.get(url, headers=headers, stream=True, timeout=timeout)
+        return requests.get(url, headers=headers, stream=True, timeout=60)
