@@ -7,6 +7,7 @@ import zipfile
 
 from .env_loader import get_github_token
 
+QUIET = "CI" in os.environ or "GITHUB_ACTIONS" in os.environ
 
 GITHUB_API_URL = "https://api.github.com/repos/REAndroid/APKEditor/releases/latest"
 BIN_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), "bin")
@@ -91,7 +92,8 @@ class APKEditor:
             print(f"[+] JAR already exists: {filepath}")
             return filepath
 
-        print(f"[+] Downloading JAR...")
+        if not QUIET:
+            print(f"[+] Downloading JAR...")
         response = requests.get(jar_url, stream=True, timeout=60)
         response.raise_for_status()
 
@@ -103,11 +105,14 @@ class APKEditor:
                 if chunk:
                     f.write(chunk)
                     downloaded += len(chunk)
-                    if total_size > 0:
+                    if not QUIET and total_size > 0:
                         percent = (downloaded / total_size) * 100
                         print(f"\r[>] Downloading: {percent:.1f}%", end="", flush=True)
 
-        print(f"\n[+] JAR saved to: {filepath}")
+        if not QUIET:
+            print(f"\n[+] JAR saved to: {filepath}")
+        else:
+            print(f"[+] JAR saved: {filepath}")
         return filepath
 
     def extract_xapk(self, xapk_path: str, output_dir: str):

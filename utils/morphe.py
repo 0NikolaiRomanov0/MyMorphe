@@ -10,6 +10,8 @@ import importlib.util
 
 from .env_loader import get_github_token
 
+QUIET = "CI" in os.environ or "GITHUB_ACTIONS" in os.environ
+
 MORPHE_CLI_URL = "https://api.github.com/repos/MorpheApp/morphe-cli/releases/latest"
 MORPHE_PATCHES_URL = "https://api.github.com/repos/MorpheApp/morphe-patches/releases/latest"
 MICROG_RE_URL = "https://api.github.com/repos/MorpheApp/MicroG-RE/releases/latest"
@@ -133,7 +135,8 @@ class Morphe:
         filename = f"morphe-cli-{version}.jar"
         filepath = os.path.join(BIN_DIR, filename)
 
-        print(f"[+] Downloading CLI...")
+        if not QUIET:
+            print(f"[+] Downloading CLI...")
         response = requests.get(url, stream=True, timeout=60)
         response.raise_for_status()
 
@@ -145,17 +148,21 @@ class Morphe:
                 if chunk:
                     f.write(chunk)
                     downloaded += len(chunk)
-                    if total_size > 0:
+                    if not QUIET and total_size > 0:
                         percent = (downloaded / total_size) * 100
                         print(f"\r[>] Downloading: {percent:.1f}%", end="", flush=True)
 
-        print(f"\n[+] CLI saved: {filepath}")
+        if not QUIET:
+            print(f"\n[+] CLI saved: {filepath}")
+        else:
+            print(f"[+] CLI saved: {filepath}")
         return filepath
 
     def download_patches(self, url: str, version: str):
         mpp_path = os.path.join(BIN_DIR, f"patches-{version}.mpp")
 
-        print(f"[+] Downloading patches...")
+        if not QUIET:
+            print(f"[+] Downloading patches...")
         response = requests.get(url, stream=True, timeout=60)
         response.raise_for_status()
 
@@ -167,11 +174,14 @@ class Morphe:
                 if chunk:
                     f.write(chunk)
                     downloaded += len(chunk)
-                    if total_size > 0:
+                    if not QUIET and total_size > 0:
                         percent = (downloaded / total_size) * 100
                         print(f"\r[>] Downloading: {percent:.1f}%", end="", flush=True)
 
-        print(f"\n[+] Patches saved: {mpp_path}")
+        if not QUIET:
+            print(f"\n[+] Patches saved: {mpp_path}")
+        else:
+            print(f"[+] Patches saved: {mpp_path}")
         return mpp_path
 
     def setup(self):
@@ -327,7 +337,8 @@ class Morphe:
                 print(f"[+] Using existing (offline): {os.path.basename(existing_apk)}")
                 return existing_apk
 
-            print(f"[+] Downloading MicroG-RE...")
+            if not QUIET:
+                print(f"[+] Downloading MicroG-RE...")
             response = github_get(apk_url, stream=True, timeout=60)
             response.raise_for_status()
 
@@ -339,11 +350,14 @@ class Morphe:
                     if chunk:
                         f.write(chunk)
                         downloaded += len(chunk)
-                        if total_size > 0:
+                        if not QUIET and total_size > 0:
                             percent = (downloaded / total_size) * 100
                             print(f"\r[>] Downloading: {percent:.1f}%", end="", flush=True)
 
-            print(f"\n[+] MicroG-RE saved: {output_path}")
+            if not QUIET:
+                print(f"\n[+] MicroG-RE saved: {output_path}")
+            else:
+                print(f"[+] MicroG-RE saved: {output_path}")
             return output_path
 
         except Exception as e:
