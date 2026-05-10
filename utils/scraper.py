@@ -7,8 +7,25 @@ class Scraper:
     def __init__(self):
         self.requester = Requester()
 
-    def get_versions(self, app_url: str, max_pages: int = 10) -> list[dict]:
+    def get_versions(self, app_url: str, app_name: str = None, max_pages: int = 10) -> list[dict]:
         results = []
+
+        from urllib.parse import urlparse
+        parsed = urlparse(app_url)
+        domain = parsed.netloc
+
+        def make_url(version_id):
+            suffix = "-x" if app_name == "reddit" else ""
+            return f"https://{domain}/android/download/{version_id}{suffix}"
+
+        def deduplicate(items: list[dict]) -> list[dict]:
+            seen = {}
+            for item in items:
+                version = item["version"]
+                file_id = item.get("fileID", 0)
+                if version not in seen or file_id > seen[version].get("fileID", 0):
+                    seen[version] = item
+            return list(seen.values())
 
         for page in range(1, max_pages + 1):
             page_url = f"{app_url}/versions/{page}"
@@ -28,7 +45,8 @@ class Scraper:
                                 results.append({
                                     "version": version,
                                     "type": file_type,
-                                    "url": f"https://youtube.en.uptodown.com/android/download/{version_id}"
+                                    "fileID": version_id,
+                                    "url": make_url(version_id)
                                 })
                         print(f"[+] Got {len(data['data'])} versions from page {page}")
                     else:
@@ -49,14 +67,15 @@ class Scraper:
                             results.append({
                                 "version": version.get_text(strip=True),
                                 "type": file_type,
-                                "url": f"https://youtube.en.uptodown.com/android/download/{version_id}"
+                                "fileID": int(version_id),
+                                "url": make_url(version_id)
                             })
 
             except Exception as e:
                 print(f"[-] Error on page {page}: {e}")
                 break
 
-        return results
+        return deduplicate(results)
 
     def get_download_link(self, detail_url: str) -> str | None:
         html = self.requester.get_text(detail_url)
@@ -74,7 +93,17 @@ class Scraper:
                 return v
         return None
 
-    def search_version(self, app_url: str, target_version: str, max_pages: int = 15) -> dict | None:
+    def search_version(self, app_url: str, target_version: str, app_name: str = None, max_pages: int = 15) -> dict | None:
+        from urllib.parse import urlparse
+        parsed = urlparse(app_url)
+        domain = parsed.netloc
+
+        def make_url(version_id):
+            suffix = "-x" if app_name == "reddit" else ""
+            return f"https://{domain}/android/download/{version_id}{suffix}"
+
+        best_match = None
+
         for page in range(1, max_pages + 1):
             page_url = f"{app_url}/versions/{page}"
             print(f"[+] Checking page {page}: {page_url}")
@@ -93,12 +122,17 @@ class Scraper:
                     file_type = item.get("kindFile", "apk")
 
                     if version == target_version:
-                        print(f"[+] Found version {target_version} on page {page}")
-                        return {
+                        current_match = {
                             "version": version,
                             "type": file_type,
-                            "url": f"https://youtube.en.uptodown.com/android/download/{version_id}"
+                            "fileID": version_id,
+                            "url": make_url(version_id)
                         }
+                        if best_match is None or version_id > best_match.get("fileID", 0):
+                            best_match = current_match
+
+                if best_match is not None:
+                    break
 
                 print(f"[+] Version {target_version} not on page {page}, checking next...")
 
@@ -108,6 +142,10 @@ class Scraper:
             except Exception as e:
                 print(f"[-] Error on page {page}: {e}")
                 break
+
+        if best_match:
+            print(f"[+] Found version {target_version} (fileID: {best_match.get('fileID')})")
+            return best_match
 
         print(f"[-] Version {target_version} not found after {max_pages} pages")
         return None
