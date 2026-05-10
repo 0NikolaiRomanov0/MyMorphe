@@ -1,0 +1,8 @@
+.env
+bin/
+output/
+patched/
+temp/
+__pycache__/
+*.pyc
+*.keystore
