@@ -327,6 +327,7 @@ class Morphe:
 
             print(f"[+] Latest: {apk_name}")
 
+            os.makedirs(PATCHED_DIR, exist_ok=True)
             output_path = os.path.join(PATCHED_DIR, apk_name)
 
             if os.path.exists(output_path):
