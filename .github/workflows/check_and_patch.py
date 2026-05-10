@@ -61,7 +61,7 @@ def find_versions_to_patch(versions, released):
 
 def run_patcher():
     print("[+] Running patcher...")
-    result = subprocess.run([sys.executable, "app.py"], capture_output=True, text=True, cwd=os.getcwd())
+    result = subprocess.run([sys.executable, "app.py --all"], capture_output=True, text=True, cwd=os.getcwd())
     print(result.stdout)
     if result.stderr:
         print(result.stderr)
