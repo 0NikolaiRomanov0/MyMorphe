@@ -33,10 +33,16 @@ No! These APKs work on any Android device without root.
 **Option 1 - Manual:** Check the Releases page for new versions and download manually.
 
 **Option 2 - Automatic (Recommended):** Use [Obtainium](https://github.com/ImranR98/Obtainium/releases) to auto-update:
+
 1. Install Obtainium from the Play Store or GitHub
-2. Add this repo as an app source: `https://github.com/0NikolaiRomanov0/MyMorphe`
-3. Enable "Follow GitHub releases" in the app settings
-4. Obtainium will notify you when new versions are available
+2. Tap **Add App** → Paste this URL in "App source URL": `https://github.com/0NikolaiRomanov0/MyMorphe`
+3. Scroll down to **Filter APKs by regular expression** and type:
+   - For YouTube: `youtube-morphe-`
+   - For YouTube Music: `youtube-music-morphe-`
+4. Enable "Follow GitHub releases" in the app settings
+5. Obtainium will notify you when new versions are available
+
+*Note: Add the repo twice if you want both YouTube and YouTube Music auto-updates.*
 
 ### Are these safe?
 Yes. The source code is available here. Morphe is a well-known open-source patcher.
