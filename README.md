@@ -30,7 +30,13 @@ Without MicroG-RE, the patched YouTube app will crash or won't sign in.
 No! These APKs work on any Android device without root.
 
 ### How do I update?
-Check the Releases page for new versions, or enable auto-update in the app settings.
+**Option 1 - Manual:** Check the Releases page for new versions and download manually.
+
+**Option 2 - Automatic (Recommended):** Use [Obtainium](https://github.com/ImranR98/Obtainium/releases) to auto-update:
+1. Install Obtainium from the Play Store or GitHub
+2. Add this repo as an app source: `https://github.com/0NikolaiRomanov0/MyMorphe`
+3. Enable "Follow GitHub releases" in the app settings
+4. Obtainium will notify you when new versions are available
 
 ### Are these safe?
 Yes. The source code is available here. Morphe is a well-known open-source patcher.
