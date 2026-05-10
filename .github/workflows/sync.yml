@@ -7,6 +7,7 @@ on:
 
 env:
   JAVA_VERSION: "17"
+  PYTHONPATH: ${{ github.workspace }}
 
 jobs:
   check-and-patch:
@@ -33,6 +34,7 @@ jobs:
         run: pip install requests
 
       - name: Check versions and patch if needed
+        working-directory: ${{ github.workspace }}
         run: python3 .github/workflows/check_and_patch.py
         env:
           GH_PAT: ${{ secrets.GH_PAT }}
