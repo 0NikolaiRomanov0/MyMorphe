@@ -138,7 +138,7 @@ def main():
                     print(f"[+] Using existing: {apk_path}")
                     continue
 
-                target = scraper.search_version(app_url, version, max_pages=15)
+                target = scraper.search_version(app_url, version, app, max_pages=15)
                 if not target:
                     print(f"[-] {app} {version} not found, skipping")
                     continue

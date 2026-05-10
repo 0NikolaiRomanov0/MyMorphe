@@ -21,6 +21,7 @@ PATCHED_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), "patched"
 
 PACKAGE_YOUTUBE = "com.google.android.youtube"
 PACKAGE_YOUTUBE_MUSIC = "com.google.android.apps.youtube.music"
+PACKAGE_REDDIT = "com.reddit.frontpage"
 
 
 def github_get(url: str, **kwargs) -> requests.Response:
@@ -206,7 +207,8 @@ class Morphe:
 
         versions = {
             "youtube": [],
-            "youtube-music": []
+            "youtube-music": [],
+            "reddit": []
         }
 
         current_package = None
@@ -217,6 +219,8 @@ class Morphe:
                     current_package = "youtube"
                 elif pkg == PACKAGE_YOUTUBE_MUSIC:
                     current_package = "youtube-music"
+                elif pkg == PACKAGE_REDDIT:
+                    current_package = "reddit"
                 else:
                     current_package = None
             elif current_package and line.strip() and line[0].isspace():
@@ -254,7 +258,8 @@ class Morphe:
     def get_app_url(self, app: str) -> str:
         return {
             "youtube": "https://youtube.en.uptodown.com/android/apps/16906",
-            "youtube-music": "https://youtube-music.en.uptodown.com/android/apps/146929"
+            "youtube-music": "https://youtube-music.en.uptodown.com/android/apps/146929",
+            "reddit": "https://reddit-official-app.en.uptodown.com/android/apps/179119"
         }[app]
 
     def patch_apk(self, input_apk: str, app: str, version: str, output_dir: str = OUTPUT_DIR) -> str | None:
