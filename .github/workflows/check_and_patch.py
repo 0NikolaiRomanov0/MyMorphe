@@ -10,7 +10,10 @@ REPO = os.environ.get("GITHUB_REPOSITORY", "")
 def get_morphe_versions():
     print("[+] Getting morphe-compatible versions...")
     
-    sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    project_root = os.path.dirname(script_dir)
+    sys.path.insert(0, project_root)
+    os.chdir(project_root)
     from utils.morphe import Morphe
     
     m = Morphe()
@@ -62,7 +65,7 @@ def find_versions_to_patch(versions, released):
 
 def run_patcher():
     print("[+] Running patcher...")
-    result = subprocess.run([sys.executable, "app.py"], capture_output=True, text=True)
+    result = subprocess.run([sys.executable, "app.py"], capture_output=True, text=True, cwd=os.getcwd())
     print(result.stdout)
     if result.stderr:
         print(result.stderr)
