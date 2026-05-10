@@ -3,6 +3,7 @@ import sys
 import json
 import subprocess
 import requests
+import argparse
 
 GITHUB_TOKEN = os.environ.get("GH_PAT") or os.environ.get("GITHUB_TOKEN")
 REPO = os.environ.get("GITHUB_REPOSITORY", "")
@@ -41,21 +42,23 @@ def get_released_files():
     print(f"[+] Found {len(released)} released files")
     return released
 
-def find_versions_to_patch(versions, released):
+def find_versions_to_patch(versions, released, all_versions=False):
     to_patch = []
     
     for app, version_list in versions.items():
         if not version_list:
             continue
         
-        version = version_list[0]
-        filename = f"{app}-morphe-{version}.apk"
+        versions_to_process = version_list if all_versions else [version_list[0]]
         
-        if filename not in released:
-            to_patch.append((app, version, filename))
-            print(f"[+] Need to patch: {app} v{version}")
-        else:
-            print(f"[+] Already released: {filename}")
+        for version in versions_to_process:
+            filename = f"{app}-morphe-{version}.apk"
+            
+            if filename not in released:
+                to_patch.append((app, version, filename))
+                print(f"[+] Need to patch: {app} v{version}")
+            else:
+                print(f"[+] Already released: {filename}")
     
     return to_patch
 
@@ -127,9 +130,13 @@ def upload_release(app, version, filename):
         return False
 
 def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--all", action="store_true", help="Patch all compatible versions")
+    args = parser.parse_args()
+
     versions = get_morphe_versions()
     released = get_released_files()
-    to_patch = find_versions_to_patch(versions, released)
+    to_patch = find_versions_to_patch(versions, released, args.all)
     
     if not to_patch:
         print("[+] All versions already released. Skipping.")
@@ -137,7 +144,7 @@ def main():
     
     print(f"[+] Found {len(to_patch)} version(s) to patch")
     
-    if run_patcher():
+    if run_patcher(args.all):
         for app, version, filename in to_patch:
             upload_release(app, version, filename)
     else:
