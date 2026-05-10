@@ -3,5 +3,6 @@ bin/
 output/
 patched/
 temp/
+logs/
 __pycache__/
 *.pyc

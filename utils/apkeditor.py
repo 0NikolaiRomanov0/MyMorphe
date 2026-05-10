@@ -56,7 +56,7 @@ class APKEditor:
 
     def get_jar_path(self) -> str:
         self.ensure_bin()
-        local_version = self._get_local_version()
+        local_version = self.get_local_version()
 
         try:
             latest_version, latest_url = self.get_latest_version()
