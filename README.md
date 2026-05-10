@@ -43,8 +43,12 @@ Yes. The source code is available here. Morphe is a well-known open-source patch
 
 ## Support
 
-- Morphe Discord: https://discord.gg/morpheapp
-- Issues: https://github.com/0NikolaiRomanov0/MyMorphe/issues
+- **Website:** [morphe.software](https://morphe.software/)
+- **GitHub:** [MorpheApp](https://github.com/MorpheApp)
+- **X/Twitter:** [@MorpheApp](https://x.com/MorpheApp)
+- **Reddit:** [r/MorpheApp](https://www.reddit.com/r/MorpheApp/)
+- **Crowdin:** [Translate Morphe](https://crowdin.com/project/morphe)
+- **Report Issues:** [here](https://github.com/0NikolaiRomanov0/MyMorphe/issues)
 
 ## Auto-Build
 
