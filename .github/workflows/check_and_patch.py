@@ -62,7 +62,7 @@ def find_versions_to_patch(versions, released, all_versions=False):
     
     return to_patch
 
-def run_patcher(all_versions=True):
+def run_patcher(all_versions=False):
     print("[+] Running patcher...")
     cmd = [sys.executable, "app.py"]
     if all_versions:
