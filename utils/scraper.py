@@ -15,7 +15,8 @@ class Scraper:
         domain = parsed.netloc
 
         def make_url(version_id):
-            suffix = "-x" if app_name == "reddit" else ""
+            #suffix = "-x" if app_name == "reddit" else ""
+            suffix = "-x"
             return f"https://{domain}/android/download/{version_id}{suffix}"
 
         def deduplicate(items: list[dict]) -> list[dict]:
@@ -99,7 +100,8 @@ class Scraper:
         domain = parsed.netloc
 
         def make_url(version_id):
-            suffix = "-x" if app_name == "reddit" else ""
+            #suffix = "-x" if app_name == "reddit" else ""
+            suffix = "-x"
             return f"https://{domain}/android/download/{version_id}{suffix}"
 
         best_match = None
