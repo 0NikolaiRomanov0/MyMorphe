@@ -10,10 +10,12 @@ Morphe is a patcher that adds features to YouTube (ReVanced-like features) witho
 
 1. Go to the **[Releases](https://github.com/0NikolaiRomanov0/MyMorphe/releases)** page
 2. Download the latest version of any of:
-   - `youtube-morphe-x.x.x.x.apk` - YouTube
-   - `youtube-music-morphe-x.x.x.x.apk` - YouTube Music
-   - `reddit-morphe-x.x.x.x.apk` - Reddit
+   - `youtube-morphe-v<ver>-mpp<mpp-ver>.apk` — YouTube
+   - `youtube-music-morphe-v<ver>-mpp<mpp-ver>.apk` — YouTube Music
+   - `reddit-morphe-v<ver>-mpp<mpp-ver>.apk` — Reddit
 3. Install the APK on your Android device
+
+*Filenames include both the app version and the Morphe patches version so updates to either trigger new builds.*
 
 ## IMPORTANT: Install MicroG-RE First
 
@@ -38,9 +40,9 @@ No! These APKs work on any Android device without root.
 1. Install Obtainium from the Play Store or GitHub
 2. Tap **Add App** → Paste this URL in "App source URL": `https://github.com/0NikolaiRomanov0/MyMorphe`
 3. Scroll down to **Filter APKs by regular expression** and type:
-   - For YouTube: `youtube-morphe-`
-   - For YouTube Music: `youtube-music-morphe-`
-   - For Reddit: `reddit-morphe-`
+   - For YouTube: `youtube-morphe-v`
+   - For YouTube Music: `youtube-music-morphe-v`
+   - For Reddit: `reddit-morphe-v`
 4. Enable "Follow GitHub releases" in the app settings
 5. Obtainium will notify you when new versions are available
 
@@ -60,4 +62,4 @@ Yes. The source code is available here. Morphe is a well-known open-source patch
 
 ## Auto-Build
 
-This repository automatically checks daily for new YouTube versions and releases patched APKs when available.
+This repository automatically checks daily for new versions of YouTube, YouTube Music, and Reddit, then builds and releases patched APKs when available.
