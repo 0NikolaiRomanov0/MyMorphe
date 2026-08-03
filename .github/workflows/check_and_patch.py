@@ -45,22 +45,30 @@ def get_released_files():
 
 def find_versions_to_patch(versions, released, mpp_version, all_versions=False):
     to_patch = []
-    
+
+    # Fail loudly if no versions were detected at all, instead of treating it
+    # as "all up to date". An empty version map almost always means the CLI
+    # failed or the Java version is wrong (see list_versions raise).
+    if not any(version_list for version_list in versions.values()):
+        raise RuntimeError(
+            "No compatible app versions were detected from morphe-cli. "
+            "This usually means the CLI failed (check Java version / patches file), "
+            "not that everything is already released."
+        )
+
     for app, version_list in versions.items():
         if not version_list:
             continue
-        
         versions_to_process = version_list if all_versions else [version_list[0]]
-        
         for version in versions_to_process:
             filename = f"{app}-morphe-v{version}-mpp{mpp_version}.apk"
-            
+
             if filename not in released:
                 to_patch.append((app, version, filename))
                 print(f"[+] Need to patch: {app} v{version}")
             else:
                 print(f"[+] Already released: {filename}")
-    
+
     return to_patch
 
 def run_patcher(all_versions=False):
