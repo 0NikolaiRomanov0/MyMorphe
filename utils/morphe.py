@@ -25,6 +25,18 @@ class Morphe:
     def ensure_bin(self):
         os.makedirs(BIN_DIR, exist_ok=True)
 
+    def _extract_cli_version_from_asset_name(self, asset_name: str) -> str:
+        """Extract the semantic version from a morphe CLI jar asset name.
+
+        Handles legacy (``morphe-cli-1.12.0.jar``) and current
+        (``morphe-cli-morphe-desktop-1.12.0-all.jar`` / ``morphe-desktop-1.12.0-all.jar``)
+        naming variants by grabbing the first ``x.y.z`` token.
+        """
+        version_match = re.search(r"(\d+\.\d+\.\d+)", asset_name)
+        if not version_match:
+            raise Exception(f"Cannot parse version from asset name: {asset_name}")
+        return version_match.group(1)
+
     def get_latest_cli_version(self) -> tuple[str, str]:
         print(f"[+] Checking latest morphe-cli...")
         response = github_get(MORPHE_CLI_URL, timeout=10)
@@ -34,8 +46,8 @@ class Morphe:
         for asset in data.get("assets", []):
             if asset["name"].endswith(".jar"):
                 jar_url = asset["browser_download_url"]
-                version = asset["name"].replace("morphe-cli-", "").replace(".jar", "")
-                print(f"[+] Latest: morphe-cli-{version}.jar ({asset['size'] / 1024:.1f} KB)")
+                version = self._extract_cli_version_from_asset_name(asset["name"])
+                print(f"[+] Latest: {asset['name']} ({asset['size'] / 1024:.1f} KB)")
                 return version, jar_url
 
         raise Exception("No CLI JAR found in latest release")
@@ -59,8 +71,9 @@ class Morphe:
         jar_files = [f for f in os.listdir(BIN_DIR) if f.startswith("morphe-cli-") and f.endswith(".jar")]
         if not jar_files:
             return None
-        version = jar_files[0].replace("morphe-cli-", "").replace(".jar", "")
-        return version
+        # Normalize: extract the semantic version from whatever naming variant is present.
+        version_match = re.search(r"(\d+\.\d+\.\d+)", jar_files[0])
+        return version_match.group(1) if version_match else None
 
     def get_local_patches_version(self) -> str | None:
         mpp_files = [f for f in os.listdir(BIN_DIR) if f.startswith("patches-") and f.endswith(".mpp")]
@@ -145,8 +158,38 @@ class Morphe:
 
         result = subprocess.run(cmd, capture_output=True, text=True, cwd=BIN_DIR)
 
-        output = result.stdout
+        # If the subprocess failed, surface the cause instead of silently
+        # treating empty output as "nothing to patch". This is the guard that
+        # would have caught the Java-version mismatch (jar needs Java 21).
+        if result.returncode != 0:
+            diagnostic = result.stderr.strip() or result.stdout.strip() or f"exit code {result.returncode}"
+            raise RuntimeError(
+                f"morphe-cli list-versions failed (exit {result.returncode}): {diagnostic}"
+            )
+
+        output = result.stderr or result.stdout
+        if not output.strip():
+            raise RuntimeError(
+                "morphe-cli list-versions produced no output. "
+                "The JAR may require a newer Java version, or the patches file is invalid. "
+                f"CLI path: {cli_path}"
+            )
+
         print(output)
+
+        return self._parse_versions(output)
+
+    def _parse_versions(self, output: str) -> dict:
+        """Parse morphe-cli ``list-versions`` output into {app: [versions]}.
+
+        Raises RuntimeError on empty/whitespace output so a broken CLI
+        invocation is never silently treated as "nothing to patch".
+        """
+        if not output or not output.strip():
+            raise RuntimeError(
+                "morphe-cli list-versions produced no output. "
+                "The JAR may require a newer Java version, or the patches file is invalid."
+            )
 
         versions = {
             APP_YOUTUBE: [],
@@ -232,7 +275,6 @@ class Morphe:
             "--keystore-password", "Morphe",
             "-o", output_path,
             "-t", temp_dir,
-            "--purge",
             input_apk
         ]
 
