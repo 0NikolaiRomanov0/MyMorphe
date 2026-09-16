@@ -243,9 +243,9 @@ class Morphe:
 
     def get_app_url(self, app: str) -> str:
         return {
-            APP_YOUTUBE: "https://youtube.en.uptodown.com/android/apps/16906",
-            APP_YOUTUBE_MUSIC: "https://youtube-music.en.uptodown.com/android/apps/146929",
-            APP_REDDIT: "https://reddit-official-app.en.uptodown.com/android/apps/179119"
+            APP_YOUTUBE: "https://apkpure.com/youtube-app/com.google.android.youtube",
+            APP_YOUTUBE_MUSIC: "https://apkpure.com/youtube-music/com.google.android.apps.youtube.music",
+            APP_REDDIT: "https://apkpure.com/reddit-app/com.reddit.frontpage"
         }[app]
 
     def patch_apk(self, input_apk: str, app: str, version: str, output_dir: str = OUTPUT_DIR) -> str | None:

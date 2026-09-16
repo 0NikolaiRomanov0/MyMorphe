@@ -145,7 +145,7 @@ def main():
                     print(f"[-] {app} {version} not found, skipping")
                     continue
 
-                download_url = scraper.get_download_link(target["url"])
+                download_url = scraper.get_download_link(target["url"]) if target["url"] else scraper.get_download_link(target.get("_download_page"))
                 if not download_url:
                     print(f"[-] Could not get download URL for {app} {version}, skipping")
                     continue
