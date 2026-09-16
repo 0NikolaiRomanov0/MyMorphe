@@ -36,6 +36,7 @@ class Scraper:
     def __init__(self):
         self.requester = Requester()
         self._active_source = "apkmirror"  # or "apkpure"
+        self._active_variant_type = "apk"  # set by _find_apkmirror_variant
 
     # ------------------------------------------------------------------
     # Public interface -- same signatures as before
@@ -134,7 +135,10 @@ class Scraper:
             print(f"[APKMirror] No variant found for {target_version}")
             return None
 
-        file_type = "xapk" if "xapk" in variant_url.lower() else "apk"
+        # Determine file type from the variant we selected
+        file_type = getattr(self, "_active_variant_type", "apk")
+        if "xapk" in variant_url.lower():
+            file_type = "xapk"
 
         print(f"[APKMirror] Found {target_version}: {variant_url[:80]}...")
 
@@ -377,22 +381,74 @@ class Scraper:
         return None
 
     def _find_apkmirror_variant(self, html: str) -> str | None:
-        """From APKMirror release page HTML, find the first APK variant URL.
+        """From APKMirror release page HTML, find the best APK variant URL.
 
-        APKMirror release pages list individual variants as links like:
-            /apk/.../youtube-21-13-164-android-apk-download/
-        We select the first link whose href contains
-        ``android-apk-download`` (the variant link pattern on
-        APKMirror's release pages).
+        APKMirror lists variants in a table with type (APK vs BUNDLE),
+        architecture, and DPI.  We MUST pick the standalone APK variant,
+        NOT the BUNDLE (split APK).  Bundles don't have a root-level
+        AndroidManifest.xml, which causes morphe-cli NPE.
+
+        Priority: universal/nodpi APK > arm64-v8a APK > any APK.
+        Never pick a BUNDLE variant.
         """
         soup = BeautifulSoup(html, "html.parser")
-        for a in soup.select("a[href]"):
-            href = str(a.get("href") or "")
-            if "android-apk-download" in href:
-                full_url = (f"https://www.apkmirror.com{href}"
-                            if href.startswith("/") else href)
-                print(f"[APKMirror] Variant: {full_url[:100]}")
-                return full_url
+
+        # Build a list of (row_text, href, row_index) for all variant rows
+        rows = soup.select("div.table-row")
+        variants = []
+        for row in rows:
+            text = row.get_text(strip=True, separator=" ")
+            link = row.select_one("a[href*='android-apk-download']")
+            if not link:
+                continue
+            href = str(link.get("href") or "")
+            if not href:
+                continue
+            full_url = (f"https://www.apkmirror.com{href}"
+                        if href.startswith("/") else href)
+            variants.append((text, full_url, len(variants)))
+
+        if not variants:
+            return None
+
+        # Classify each variant: APK vs BUNDLE
+        standalone_apks = []
+        bundle_apks = []
+        for text, url, idx in variants:
+            text_upper = text.upper()
+            if "BUNDLE" in text_upper:
+                bundle_apks.append((text, url, idx))
+            else:
+                standalone_apks.append((text, url, idx))
+
+        if standalone_apks:
+            # Rank standalone APKs: universal/nodpi first, then by arch
+            def apk_priority(item):
+                text = item[0].lower()
+                score = 0
+                if "universal" in text:
+                    score += 100
+                if "nodpi" in text:
+                    score += 50
+                if "arm64" in text:
+                    score += 10
+                return -score  # negative so highest score sorts first
+
+            standalone_apks.sort(key=apk_priority)
+            best = standalone_apks[0]
+            print(f"[APKMirror] Variant: {best[1][:100]}")
+            print(f"[APKMirror] Variant info: {best[0][:100]}")
+            self._active_variant_type = "apk"
+            return best[1]
+
+        if bundle_apks:
+            # All variants are bundles (e.g. Reddit only has XAPK).
+            # The caller must use XAPK→APK conversion (apkeditor.py).
+            print("[APKMirror] Only BUNDLE variants found, "
+                  "downloading as XAPK")
+            self._active_variant_type = "xapk"
+            return bundle_apks[0][1]
+
         return None
 
     def _extract_apkmirror_download_link(self, variant_url: str) -> str | None:
