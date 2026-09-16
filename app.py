@@ -145,30 +145,59 @@ def main():
                     print(f"[-] {app} {version} not found, skipping")
                     continue
 
-                download_url = scraper.get_download_link(target["url"]) if target["url"] else scraper.get_download_link(target.get("_download_page"))
-                if not download_url:
-                    print(f"[-] Could not get download URL for {app} {version}, skipping")
+                # Build a list of download URLs to try: primary first,
+                # then any fallbacks (e.g. APK vs XAPK CDN URLs).
+                download_urls = []
+                primary = (scraper.get_download_link(target["url"])
+                           if target["url"]
+                           else scraper.get_download_link(
+                               target.get("_download_page")))
+                if primary:
+                    download_urls.append((target["type"], primary))
+                # Append fallback URL if present (e.g. _fallback_url from
+                # APKPure CDN which offers both APK and XAPK formats)
+                fb_url = target.get("_fallback_url")
+                if fb_url:
+                    fb_type = ("xapk" if "xapk" in fb_url.lower()
+                               else "apk")
+                    download_urls.append((fb_type, fb_url))
+
+                if not download_urls:
+                    print(f"[-] Could not get download URL for "
+                          f"{app} {version}, skipping")
                     continue
 
-                file_type = target["type"]
-                filename = f"{app}-{version}.{file_type}"
+                last_error = None
+                for file_type, download_url in download_urls:
+                    filename = f"{app}-{version}.{file_type}"
 
-                try:
-                    if file_type == "xapk":
-                        downloader.download(download_url, TEMP_DIR, filename)
-                        xapk_path = os.path.join(TEMP_DIR, filename)
-                        apk_filename = f"{app}-{version}.apk"
-                        apk_path = apk_editor.convert_xapk_to_apk(xapk_path, OUTPUT_DIR, apk_filename)
-                    else:
-                        downloader.download(download_url, OUTPUT_DIR, filename)
-                        apk_path = os.path.join(OUTPUT_DIR, filename)
+                    try:
+                        if file_type == "xapk":
+                            downloader.download(download_url,
+                                                TEMP_DIR, filename)
+                            xapk_path = os.path.join(TEMP_DIR, filename)
+                            apk_filename = f"{app}-{version}.apk"
+                            apk_path = apk_editor.convert_xapk_to_apk(
+                                xapk_path, OUTPUT_DIR, apk_filename)
+                        else:
+                            downloader.download(download_url,
+                                                OUTPUT_DIR, filename)
+                            apk_path = os.path.join(OUTPUT_DIR, filename)
 
-                    if app not in to_patch:
-                        to_patch[app] = []
-                    to_patch[app].append((version, apk_path))
-                    print(f"[+] Downloaded: {apk_path}")
-                except Exception as e:
-                    print(f"[-] Error downloading {app} {version}: {e}")
+                        if app not in to_patch:
+                            to_patch[app] = []
+                        to_patch[app].append((version, apk_path))
+                        print(f"[+] Downloaded: {apk_path}")
+                        last_error = None
+                        break
+                    except Exception as e:
+                        last_error = e
+                        print(f"[-] Download {file_type} failed: {e}")
+                        continue
+
+                if last_error:
+                    print(f"[-] All download sources failed for "
+                          f"{app} {version}")
 
     if to_patch:
         print()

@@ -3,54 +3,42 @@ from bs4 import BeautifulSoup
 from .requester import Requester
 
 
-# versionCode mapping — used by APKPure CDN fallback to construct direct
-# CDN URLs without scraping the (Cloudflare-protected) main site.
-# If a version is missing here we skip the CDN path for that app.
-APKPURE_VERSION_CODES = {
-    "com.google.android.youtube": {
-        "21.13.164": 1561063732,
-    },
-    "com.google.android.apps.youtube.music": {
-        "9.15.51": 91551240,
-    },
-    "com.reddit.frontpage": {
-        "2026.14.0": 2614140,
-    },
-}
-
-# Maps APKPure package slug segments to the real package name so we can
-# construct APKPure CDN URLs directly.
-APKPURE_PACKAGE_MAP = {
-    "youtube-app": "com.google.android.youtube",
-    "youtube-music": "com.google.android.apps.youtube.music",
-    "reddit-app": "com.reddit.frontpage",
-}
-
-
 class Scraper:
     """APKMirror + APKPure CDN scraper for fetching app versions and downloads.
 
     Strategy:
-      1. APKMirror version listing (reliable, no CAPTCHA)
-      2. APKMirror download flow (3-step: version page -> download page -> file)
-      3. Fallback to APKPure CDN links if APKMirror is Cloudflare-blocked
+      1. APKMirror: construct direct version page URL (no pagination needed),
+         then follow release -> variant -> download button -> download.php
+      2. APKPure CDN fallback: scrape the download page to extract versionCode,
+         then construct d.apkpure.com CDN URL directly.
 
-    The public interface (search_version, get_versions, get_download_link)
-    is preserved so app.py and check_and_patch.py require no changes.
+    The revanced-morphe-builder project proved this approach works:
+    - APKMirror release pages have predictable URLs
+    - APKPure CDN links can be extracted from download pages
+    - Both work from GitHub Actions with curl_cffi TLS fingerprint impersonation
     """
 
     # Base URL for APKMirror app pages
     _APKMIRROR_BASE = "https://www.apkmirror.com"
 
-    # APKPure CDN base — bypasses main-site Cloudflare protection
+    # APKPure CDN base -- bypasses main-site Cloudflare protection
     _APKPURE_CDN = "https://d.apkpure.com/b"
+
+    # Maps package names to their APKMirror URL path segments.
+    # These are used to construct direct version page URLs without
+    # needing to scrape or paginate through version listings.
+    _APKMIRROR_APP_PATH = {
+        "com.google.android.youtube": "apk/google-inc/youtube",
+        "com.google.android.apps.youtube.music": "apk/google-inc/youtube-music",
+        "com.reddit.frontpage": "apk/redditinc/reddit",
+    }
 
     def __init__(self):
         self.requester = Requester()
         self._active_source = "apkmirror"  # or "apkpure"
 
     # ------------------------------------------------------------------
-    # Public interface — same signatures as before
+    # Public interface -- same signatures as before
     # ------------------------------------------------------------------
 
     def search_version(self, app_url: str, target_version: str,
@@ -63,13 +51,13 @@ class Scraper:
         and **_download_page** is the APKMirror variant page URL (for the
         APKMirror download flow).
         """
-        # Try APKMirror first
+        # Try APKMirror first (direct version page URL, no pagination)
         result = self._search_version_apkmirror(app_url, target_version)
         if result:
             self._active_source = "apkmirror"
             return result
 
-        # Fallback: APKPure CDN
+        # Fallback: APKPure CDN (extract version code from download page)
         result = self._search_version_apkpure(app_url, target_version)
         if result:
             self._active_source = "apkpure"
@@ -107,123 +95,158 @@ class Scraper:
 
     def _search_version_apkmirror(self, app_base_url: str,
                                   target_version: str) -> dict | None:
-        """Search for target_version on APKMirror's version listing."""
-        apkmirror_url = self._to_apkmirror_url(app_base_url)
-        versions_page = f"{apkmirror_url}/"
+        """Search for target_version on APKMirror.
 
-        print(f"[APKMirror] Searching for {target_version} at {versions_page}")
+        Instead of paginating through version listings (which gets 403'd
+        after page 1), we construct the direct version page URL from the
+        version name.  APKMirror URLs follow a predictable pattern:
+          /apk/{org}/{app}/{app}-{ver}-release/
 
-        # Check multiple pages for older versions
-        for page_num in range(1, 16):
-            if page_num == 1:
-                url = versions_page
-            else:
-                url = f"{versions_page}page/{page_num}/"
+        This is the same approach used by revanced-morphe-builder.
+        """
+        # Extract package name from the APKPure URL
+        pkg = app_base_url.rstrip("/").split("/")[-1]
+        app_path = self._APKMIRROR_APP_PATH.get(pkg)
+        if not app_path:
+            print(f"[APKMirror] Unknown package: {pkg}")
+            return None
 
-            try:
-                html = self.requester.get_text(url)
-            except Exception as e:
-                print(f"[APKMirror] Page {page_num} failed: {e}")
-                break
+        # Convert version dots to dashes for the URL
+        version_dashes = target_version.replace(".", "-")
+        app_slug = app_path.split("/")[-1]  # e.g. "youtube"
 
-            version_map = self._parse_apkmirror_version_links(html)
-            if not version_map:
-                print(f"[APKMirror] No versions on page {page_num}")
-                break
+        release_url = (
+            f"{self._APKMIRROR_BASE}/{app_path}/"
+            f"{app_slug}-{version_dashes}-release/"
+        )
 
-            if target_version in version_map:
-                release_url = version_map[target_version]
-                print(f"[APKMirror] Found {target_version}: {release_url}")
+        print(f"[APKMirror] Trying direct URL: {release_url}")
 
-                # Fetch the release page to find APK/XAPK variant links
-                variant_url = self._find_apkmirror_variant(release_url)
-                if not variant_url:
-                    print(f"[APKMirror] No variant found for {target_version}")
-                    return None
+        try:
+            html = self.requester.get_text(release_url)
+        except Exception as e:
+            print(f"[APKMirror] Direct URL failed: {e}")
+            return None
 
-                file_type = "xapk" if "xapk" in variant_url.lower() else "apk"
+        # Find APK or XAPK variant link from the release page
+        variant_url = self._find_apkmirror_variant(html)
+        if not variant_url:
+            print(f"[APKMirror] No variant found for {target_version}")
+            return None
 
-                return {
-                    "version": target_version,
-                    "type": file_type,
-                    "url": None,
-                    "_download_page": variant_url,
-                }
+        file_type = "xapk" if "xapk" in variant_url.lower() else "apk"
 
-            print(f"[APKMirror] Page {page_num}: {len(version_map)} versions, "
-                  f"target not found")
+        print(f"[APKMirror] Found {target_version}: {variant_url[:80]}...")
 
-        print(f"[APKMirror] {target_version} not found after checking pages")
-        return None
+        return {
+            "version": target_version,
+            "type": file_type,
+            "url": None,
+            "_download_page": variant_url,
+        }
 
     def _search_version_apkpure(self, app_base_url: str,
                                 target_version: str) -> dict | None:
-        """Fallback: construct a direct APKPure CDN URL.
+        """Fallback: extract download info from APKPure.
 
-        The main APKPure site (``apkpure.com/…/download/…``) is behind
-        Cloudflare and unreliable from CI.  Instead, we build the CDN URL
-        directly via the versionCode mapping so the main site is never
-        touched.
-
-        CDN URL format:
-          ``https://d.apkpure.com/b/{APK|XAPK}/{package}?versionCode={code}``
+        Instead of hardcoding version codes, we scrape the APKPure
+        download page for the target version and extract the versionCode
+        from the CDN link or page content.  This works because the
+        download page (unlike /versions) is a single page that may not
+        trigger Cloudflare's pagination blocks.
         """
-        # Extract the package name from the APKPure app URL.
-        # E.g. https://apkpure.com/youtube-app/com.google.android.youtube
-        #       → slug="youtube-app", pkg="com.google.android.youtube"
+        # Extract package name
         url_path = app_base_url.rstrip("/").split("apkpure.com/")[-1]
         parts = url_path.split("/")
         slug = parts[0] if parts else ""
-        package_name = APKPURE_PACKAGE_MAP.get(slug)
+
+        # Map APKPure slugs to package names
+        SLUG_TO_PKG = {
+            "youtube-app": "com.google.android.youtube",
+            "youtube-music": "com.google.android.apps.youtube.music",
+            "reddit-app": "com.reddit.frontpage",
+        }
+        package_name = SLUG_TO_PKG.get(slug)
         if not package_name:
-            # Fallback: last segment is often the package name
             package_name = parts[-1] if parts else ""
 
         print(f"[APKPure CDN] Searching for {target_version} "
               f"(package={package_name})")
 
-        # --- Strategy 1: direct CDN URL via versionCode mapping ----------
-        version_codes = APKPURE_VERSION_CODES.get(package_name, {})
-        version_code = version_codes.get(target_version)
-
-        if version_code:
-            # Guess file type: Reddit is XAPK on APKPure, others are APK
-            file_type = "xapk" if "reddit" in package_name.lower() else "apk"
-            cdn_url = (f"https://d.apkpure.com/b/{file_type.upper()}/"
-                       f"{package_name}?versionCode={version_code}")
-            print(f"[APKPure CDN] CDN URL: {cdn_url}")
-            return {
-                "version": target_version,
-                "type": file_type,
-                "url": cdn_url,
-                "_download_page": cdn_url,
-            }
-
-        # --- Strategy 2: scrape the download page (may be Cloudflare'd) --
+        # Strategy 1: Scrape the download page for this version to get
+        # the CDN link directly.
         try:
             download_page_url = f"{app_base_url}/download/{target_version}"
             html = self.requester.get_text(download_page_url)
+
+            # Try to extract CDN link from the page
             cdn_link = self._extract_cdn_link(html)
             if cdn_link:
                 print(f"[APKPure CDN] Found CDN link: {cdn_link[:80]}...")
+                file_type = ("xapk" if "/XAPK/" in cdn_link else "apk")
                 return {
                     "version": target_version,
-                    "type": "apk",
+                    "type": file_type,
                     "url": cdn_link,
                     "_download_page": download_page_url,
                 }
+
+            # If no CDN link in HTML, try to extract versionCode
+            # from the page and construct CDN URL
+            version_code = self._extract_version_code(html)
+            if version_code and package_name:
+                cdn_url = (
+                    f"{self._APKPURE_CDN}/APK/"
+                    f"{package_name}?versionCode={version_code}"
+                )
+                print(f"[APKPure CDN] Constructed CDN URL: {cdn_url[:80]}...")
+                return {
+                    "version": target_version,
+                    "type": "apk",
+                    "url": cdn_url,
+                    "_download_page": cdn_url,
+                }
         except Exception as e:
-            print(f"[APKPure CDN] Page scrape failed: {e}")
+            print(f"[APKPure CDN] Download page scrape failed: {e}")
+
+        # Strategy 2: Try the versions page to find versionCode
+        try:
+            versions_page_url = f"{app_base_url}/versions"
+            html = self.requester.get_text(versions_page_url)
+            version_code = self._extract_version_code_for_version(
+                html, target_version
+            )
+            if version_code and package_name:
+                cdn_url = (
+                    f"{self._APKPURE_CDN}/APK/"
+                    f"{package_name}?versionCode={version_code}"
+                )
+                print(f"[APKPure CDN] CDN URL from versions: {cdn_url[:80]}...")
+                return {
+                    "version": target_version,
+                    "type": "apk",
+                    "url": cdn_url,
+                    "_download_page": cdn_url,
+                }
+        except Exception as e:
+            print(f"[APKPure CDN] Versions page scrape failed: {e}")
 
         print(f"[APKPure CDN] No CDN URL found for {target_version}")
         return None
 
     def _fetch_apkmirror_versions(self, app_base_url: str,
                                   max_versions: int = 100) -> list[dict]:
-        """Fetch version list from APKMirror."""
-        apkmirror_url = self._to_apkmirror_url(app_base_url)
-        versions_page = f"{apkmirror_url}/"
+        """Fetch version list from APKMirror (paginated)."""
+        app_path = None
+        pkg = app_base_url.rstrip("/").split("/")[-1]
+        for key, path in self._APKMIRROR_APP_PATH.items():
+            if key == pkg:
+                app_path = path
+                break
+        if not app_path:
+            return []
 
+        versions_page = f"{self._APKMIRROR_BASE}/{app_path}/"
         print(f"[APKMirror] Fetching versions from {versions_page}")
         results: list[dict] = []
         seen: set[str] = set()
@@ -249,7 +272,7 @@ class Scraper:
                 seen.add(version)
                 results.append({
                     "version": version,
-                    "type": "apk",  # refined lazily
+                    "type": "apk",
                     "fileID": len(results) + 1,
                     "url": None,
                     "_download_page": variant_url,
@@ -265,29 +288,6 @@ class Scraper:
     # ------------------------------------------------------------------
 
     @staticmethod
-    def _to_apkmirror_url(apkpure_url: str) -> str:
-        """Convert an APKPure app URL to an APKMirror URL.
-
-        Example:
-          https://apkpure.com/youtube-app/com.google.android.youtube
-          -> https://www.apkmirror.com/apk/google-inc/youtube
-        """
-        # Package name extraction works for all apps
-        # The mapping between APKPure slugs and APKMirror paths
-        APKMIRROR_MAP = {
-            "com.google.android.youtube": "apk/google-inc/youtube",
-            "com.google.android.apps.youtube.music": "apk/google-inc/youtube-music",
-            "com.reddit.frontpage": "apk/redditinc/reddit",
-        }
-
-        pkg = apkpure_url.rstrip("/").split("/")[-1]
-        if pkg in APKMIRROR_MAP:
-            return f"https://www.apkmirror.com/{APKMIRROR_MAP[pkg]}"
-
-        # Fallback: assume package name matches
-        return f"https://www.apkmirror.com/apk/{pkg}"
-
-    @staticmethod
     def _parse_apkmirror_version_links(html: str) -> dict[str, str]:
         """Parse an APKMirror version listing page.
 
@@ -299,7 +299,7 @@ class Scraper:
         result: dict[str, str] = {}
 
         version_re = re.compile(
-            r'/([a-z][\w-]*?)-([\d]+(?:-[\d]+)+)-release'
+            r'/([a-z][\w-]*?)-([\d]+(?:-[[\d]+)+)-release'
         )
 
         for a in soup.select("a[href]"):
@@ -331,40 +331,69 @@ class Scraper:
                 return href
         return None
 
-    def _find_apkmirror_variant(self, release_url: str) -> str | None:
-        """From an APKMirror release page, find the first APK or XAPK variant URL.
+    @staticmethod
+    def _extract_version_code(html: str) -> str | None:
+        """Extract versionCode from APKPure download page HTML.
 
-        APKMirror release pages list individual variants as links like:
-            /apk/.../youtube-21-13-164-android-apk-download/
-        We pick the first one that mentions APK or XAPK.
+        Looks for patterns like:
+          - data-code="1561063732"
+          - /b/APK/...?versionCode=1561063732
+          - download/{version_code}
         """
-        try:
-            html = self.requester.get_text(release_url)
-            soup = BeautifulSoup(html, "html.parser")
+        # Pattern 1: data-code attribute
+        match = re.search(r'data-code=["\'](\d+)["\']', html)
+        if match:
+            return match.group(1)
 
-            for a in soup.select("a[href]"):
-                href = str(a.get("href") or "")
-                text = a.get_text(strip=True).upper()
-                if ("android-apk-download" in href
-                        and ("APK" in text or "XAPK" in text)):
-                    full_url = (f"https://www.apkmirror.com{href}"
-                                if href.startswith("/") else href)
-                    print(f"[APKMirror] Variant: {full_url[:100]}")
-                    return full_url
-        except Exception as e:
-            print(f"[APKMirror] Error finding variant: {e}")
+        # Pattern 2: versionCode in CDN URL
+        match = re.search(r'versionCode=(\d+)', html)
+        if match:
+            return match.group(1)
+
+        # Pattern 3: /download/{code} in href
+        match = re.search(r'/download/(\d+)', html)
+        if match:
+            return match.group(1)
 
         return None
 
-    def _detect_apkmirror_file_type(self, variant_url: str) -> str:
-        """Fetch an APKMirror variant page and detect if it's APK or XAPK."""
-        try:
-            html = self.requester.get_text(variant_url)
-            if "XAPK" in html.upper() and "APK Bundle" in html:
-                return "xapk"
-            return "apk"
-        except Exception:
-            return "apk"
+    @staticmethod
+    def _extract_version_code_for_version(html: str,
+                                          target_version: str) -> str | None:
+        """Extract versionCode for a specific version from APKPure HTML.
+
+        Parses download links that look like:
+          /youtube-app/com.google.android.youtube/download/1561063732
+        """
+        soup = BeautifulSoup(html, "html.parser")
+        for a in soup.select("a[href]"):
+            href = str(a.get("href") or "")
+            text = a.get_text(strip=True)
+            # Match by version number in the link text
+            if target_version in text:
+                match = re.search(r'/download/(\d+)', href)
+                if match:
+                    return match.group(1)
+        return None
+
+    def _find_apkmirror_variant(self, html: str) -> str | None:
+        """From APKMirror release page HTML, find the first APK variant URL.
+
+        APKMirror release pages list individual variants as links like:
+            /apk/.../youtube-21-13-164-android-apk-download/
+        We select the first link whose href contains
+        ``android-apk-download`` (the variant link pattern on
+        APKMirror's release pages).
+        """
+        soup = BeautifulSoup(html, "html.parser")
+        for a in soup.select("a[href]"):
+            href = str(a.get("href") or "")
+            if "android-apk-download" in href:
+                full_url = (f"https://www.apkmirror.com{href}"
+                            if href.startswith("/") else href)
+                print(f"[APKMirror] Variant: {full_url[:100]}")
+                return full_url
+        return None
 
     def _extract_apkmirror_download_link(self, variant_url: str) -> str | None:
         """Extract the actual APK file URL from an APKMirror variant page.
@@ -399,27 +428,74 @@ class Scraper:
             html2 = self.requester.get_text(full_dl_url)
             soup2 = BeautifulSoup(html2, "html.parser")
 
-            # Step 4: Find the download.php link
+            # Step 4: Find the actual download link.
+            # APKMirror shows the download URL in different formats:
+            #   - Old: <a href="/wp-content/themes/APKMirror/download.php?id=...">
+            #   - New: <a href="..." rel="nofollow"> under a span
+            # We search for both patterns.  Use the revanced-morphe-builder
+            # approach: find ``span > a[rel=nofollow]`` first.
             dl_php_url = None
-            for a in soup2.select("a"):
-                href = str(a.get("href") or "")
-                if "download.php" in href:
-                    dl_php_url = (f"https://www.apkmirror.com{href}"
-                                  if href.startswith("/") else href)
-                    break
+            # Pattern 1: span > a with rel=nofollow (revanced-morphe-builder)
+            for span in soup2.select("span"):
+                link = span.select_one("a[rel=nofollow]")
+                if link:
+                    dl_php_url = str(link.get("href") or "")
+                    if dl_php_url:
+                        dl_php_url = (f"https://www.apkmirror.com{dl_php_url}"
+                                      if dl_php_url.startswith("/") else dl_php_url)
+                        break
+            # Pattern 2: fallback — look for download.php link
+            if not dl_php_url:
+                for a in soup2.select("a"):
+                    href = str(a.get("href") or "")
+                    if "download.php" in href:
+                        dl_php_url = (f"https://www.apkmirror.com{href}"
+                                      if href.startswith("/") else href)
+                        break
+            # Pattern 3: any prominent link to the actual file
+            if not dl_php_url:
+                for a in soup2.select("a.downloadLink, a[href*=download]"):
+                    href = str(a.get("href") or "")
+                    if href and href.startswith("http"):
+                        dl_php_url = href
+                        break
 
             if not dl_php_url:
                 print("[APKMirror] No download.php link found")
                 return None
 
-            # Step 5: Follow the download.php redirect to get the final CDN URL
-            # We use the correct Referer (the download page) to pass validation.
-            # The final URL (Cloudflare R2 or similar) can then be fetched by
-            # the Downloader without special headers.
-            resp = self.requester.get_with_referer(dl_php_url, full_dl_url)
-            final_url = resp.url
+            # Step 5: Follow the redirect chain to get the final CDN URL.
+            # APKMirror's download.php returns a 302 redirect to the actual
+            # CDN file.  We use allow_redirects=False and follow the
+            # Location header manually to avoid downloading multi-GB APKs.
+            resp = self.requester._session.get(
+                dl_php_url,
+                headers={"Referer": full_dl_url,
+                         "User-Agent": self.requester._FIREFOX_UA},
+                timeout=15,
+                impersonate="chrome",
+                allow_redirects=False,
+            )
+            final_url = dl_php_url
+            redirect_count = 0
+            while resp.is_redirect and redirect_count < 5:
+                location = resp.headers.get("Location", "")
+                if location:
+                    if location.startswith("/"):
+                        location = f"https://www.apkmirror.com{location}"
+                    final_url = location
+                resp = self.requester._session.get(
+                    final_url,
+                    headers={"Referer": dl_php_url,
+                             "User-Agent": self.requester._FIREFOX_UA},
+                    timeout=15,
+                    impersonate="chrome",
+                    allow_redirects=False,
+                )
+                redirect_count += 1
 
-            if resp.status_code in (200, 206) or "cloudflarestorage" in final_url:
+            # If we ended up on a cloudflarestorage URL, that's our CDN link.
+            if "cloudflarestorage" in final_url:
                 print(f"[APKMirror] Resolved download URL: {final_url[:100]}...")
                 return final_url
 

@@ -31,7 +31,7 @@ jobs:
           key: morphe-bin-${{ runner.os }}
 
       - name: Install Python dependencies
-        run: pip install curl_cffi beautifulsoup4 fake-useragent pytest
+        run: pip install curl_cffi requests beautifulsoup4 fake-useragent pytest
 
       - name: Run unit tests
         working-directory: ${{ github.workspace }}
