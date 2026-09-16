@@ -3,6 +3,30 @@ from bs4 import BeautifulSoup
 from .requester import Requester
 
 
+# versionCode mapping — used by APKPure CDN fallback to construct direct
+# CDN URLs without scraping the (Cloudflare-protected) main site.
+# If a version is missing here we skip the CDN path for that app.
+APKPURE_VERSION_CODES = {
+    "com.google.android.youtube": {
+        "21.13.164": 1561063732,
+    },
+    "com.google.android.apps.youtube.music": {
+        "9.15.51": 91551240,
+    },
+    "com.reddit.frontpage": {
+        "2026.14.0": 2614140,
+    },
+}
+
+# Maps APKPure package slug segments to the real package name so we can
+# construct APKPure CDN URLs directly.
+APKPURE_PACKAGE_MAP = {
+    "youtube-app": "com.google.android.youtube",
+    "youtube-music": "com.google.android.apps.youtube.music",
+    "reddit-app": "com.reddit.frontpage",
+}
+
+
 class Scraper:
     """APKMirror + APKPure CDN scraper for fetching app versions and downloads.
 
@@ -134,10 +158,48 @@ class Scraper:
 
     def _search_version_apkpure(self, app_base_url: str,
                                 target_version: str) -> dict | None:
-        """Fallback: try to find version on APKPure and resolve CDN link."""
-        print(f"[APKPure CDN] Searching for {target_version}")
+        """Fallback: construct a direct APKPure CDN URL.
 
-        # APKPure download page might still work (less protected than /versions)
+        The main APKPure site (``apkpure.com/…/download/…``) is behind
+        Cloudflare and unreliable from CI.  Instead, we build the CDN URL
+        directly via the versionCode mapping so the main site is never
+        touched.
+
+        CDN URL format:
+          ``https://d.apkpure.com/b/{APK|XAPK}/{package}?versionCode={code}``
+        """
+        # Extract the package name from the APKPure app URL.
+        # E.g. https://apkpure.com/youtube-app/com.google.android.youtube
+        #       → slug="youtube-app", pkg="com.google.android.youtube"
+        url_path = app_base_url.rstrip("/").split("apkpure.com/")[-1]
+        parts = url_path.split("/")
+        slug = parts[0] if parts else ""
+        package_name = APKPURE_PACKAGE_MAP.get(slug)
+        if not package_name:
+            # Fallback: last segment is often the package name
+            package_name = parts[-1] if parts else ""
+
+        print(f"[APKPure CDN] Searching for {target_version} "
+              f"(package={package_name})")
+
+        # --- Strategy 1: direct CDN URL via versionCode mapping ----------
+        version_codes = APKPURE_VERSION_CODES.get(package_name, {})
+        version_code = version_codes.get(target_version)
+
+        if version_code:
+            # Guess file type: Reddit is XAPK on APKPure, others are APK
+            file_type = "xapk" if "reddit" in package_name.lower() else "apk"
+            cdn_url = (f"https://d.apkpure.com/b/{file_type.upper()}/"
+                       f"{package_name}?versionCode={version_code}")
+            print(f"[APKPure CDN] CDN URL: {cdn_url}")
+            return {
+                "version": target_version,
+                "type": file_type,
+                "url": cdn_url,
+                "_download_page": cdn_url,
+            }
+
+        # --- Strategy 2: scrape the download page (may be Cloudflare'd) --
         try:
             download_page_url = f"{app_base_url}/download/{target_version}"
             html = self.requester.get_text(download_page_url)
@@ -151,8 +213,9 @@ class Scraper:
                     "_download_page": download_page_url,
                 }
         except Exception as e:
-            print(f"[APKPure CDN] Failed: {e}")
+            print(f"[APKPure CDN] Page scrape failed: {e}")
 
+        print(f"[APKPure CDN] No CDN URL found for {target_version}")
         return None
 
     def _fetch_apkmirror_versions(self, app_base_url: str,
